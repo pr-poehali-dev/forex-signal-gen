@@ -1,34 +1,27 @@
-import { useState, useMemo } from "react";
-import CandleChart from "./CandleChart";
+import { useState } from "react";
 import Icon from "@/components/ui/icon";
-import { PAIRS, INDICATORS, PATTERNS, generateCandles } from "@/data/mockData";
+import { PAIRS, PATTERNS } from "@/data/mockData";
+import TradingViewWidget, { TradingViewTechnicalAnalysis } from "./TradingViewWidget";
 
 const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
 
 export default function Analysis({ selectedPair }: { selectedPair: string }) {
   const [pair, setPair] = useState(selectedPair || "EUR/USD");
   const [tf, setTf] = useState("H1");
-
-  const candles = useMemo(() => {
-    const base = PAIRS.find(p => p.symbol === pair)?.price ?? 1.08;
-    return generateCandles(base, 40, PAIRS.find(p => p.symbol === pair)?.vol ?? 0.006);
-  }, [pair, tf]);
-
-  const lastCandle = candles[candles.length - 1];
-  const isUp = lastCandle.close >= lastCandle.open;
+  const [activeTab, setActiveTab] = useState<"chart" | "analysis">("chart");
 
   return (
     <div className="animate-fade-in space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Анализ пары</h1>
-          <p className="text-sm text-white/40 mt-0.5">Индикаторы, паттерны и сигналы</p>
+          <p className="text-sm text-white/40 mt-0.5">Реальный график TradingView + технический анализ</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select
             value={pair}
             onChange={e => setPair(e.target.value)}
-            className="bg-transparent border rounded-lg px-3 py-1.5 text-sm font-semibold text-white focus:outline-none cursor-pointer"
+            className="border rounded-lg px-3 py-1.5 text-sm font-semibold text-white focus:outline-none cursor-pointer"
             style={{ borderColor: "var(--border-glow)", background: "var(--bg-card)" }}
           >
             {PAIRS.map(p => (
@@ -40,7 +33,7 @@ export default function Analysis({ selectedPair }: { selectedPair: string }) {
               <button
                 key={t}
                 onClick={() => setTf(t)}
-                className={`px-3 py-1.5 text-xs font-bold font-mono transition-all ${tf === t ? "text-black font-bold" : "text-white/40 hover:text-white/70"}`}
+                className={`px-2.5 py-1.5 text-xs font-bold font-mono transition-all ${tf === t ? "text-black" : "text-white/40 hover:text-white/70"}`}
                 style={tf === t ? { background: "var(--neon-green)" } : {}}
               >
                 {t}
@@ -50,117 +43,100 @@ export default function Analysis({ selectedPair }: { selectedPair: string }) {
         </div>
       </div>
 
-      <div className="card-glow rounded-xl p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <span className="text-xl font-bold font-mono text-white">{pair}</span>
-            <span className="ml-3 text-2xl font-bold font-mono" style={{ color: isUp ? "var(--neon-green)" : "var(--neon-red)" }}>
-              {lastCandle.close.toFixed(lastCandle.close > 100 ? 2 : 5)}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Icon name={isUp ? "TrendingUp" : "TrendingDown"} size={16} style={{ color: isUp ? "var(--neon-green)" : "var(--neon-red)" }} />
-            <span className={`text-sm font-mono font-bold ${isUp ? "neon-text" : "neon-red"}`}>
-              {isUp ? "+" : ""}{(((lastCandle.close - candles[0].open) / candles[0].open) * 100).toFixed(2)}%
-            </span>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded-lg" style={{ background: "rgba(0,0,0,0.2)" }}>
-          <CandleChart candles={candles} width={560} height={200} />
-        </div>
-        <div className="flex gap-6 mt-3 text-xs font-mono text-white/30">
-          {[
-            { l: "O", v: lastCandle.open.toFixed(5) },
-            { l: "H", v: lastCandle.high.toFixed(5) },
-            { l: "L", v: lastCandle.low.toFixed(5) },
-            { l: "C", v: lastCandle.close.toFixed(5) },
-          ].map(x => (
-            <span key={x.l}><span className="text-white/20">{x.l}: </span><span className="text-white/60">{x.v}</span></span>
-          ))}
-        </div>
+      <div className="flex gap-2">
+        {(["chart", "analysis"] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2`}
+            style={activeTab === tab
+              ? { background: "rgba(0,255,136,0.12)", color: "var(--neon-green)", border: "1px solid rgba(0,255,136,0.3)" }
+              : { background: "transparent", color: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.08)" }
+            }
+          >
+            <Icon name={tab === "chart" ? "BarChart2" : "Activity"} size={13} />
+            {tab === "chart" ? "График" : "Технический анализ"}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card-glow rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-white/70 mb-4 flex items-center gap-2">
-            <Icon name="BarChart2" size={14} style={{ color: "var(--neon-blue)" }} />
-            Индикаторы
-          </h3>
-          <div className="space-y-3">
-            <IndicatorRow label="RSI (14)" value={`${INDICATORS.rsi.value}`} signal="нейтрально" color="var(--neon-yellow)" bar={INDICATORS.rsi.value / 100} />
-            <IndicatorRow label="MACD" value={`${INDICATORS.macd.value}`} signal="бычий" color="var(--neon-green)" bar={0.65} />
-            <IndicatorRow label="Stochastic K" value={`${INDICATORS.stoch.k}`} signal="нейтрально" color="var(--neon-yellow)" bar={INDICATORS.stoch.k / 100} />
-            <IndicatorRow label="ATR (14)" value={`${INDICATORS.atr.value}`} signal="волатильность" color="var(--neon-blue)" bar={0.4} />
+      {activeTab === "chart" && (
+        <div className="card-glow rounded-xl overflow-hidden" style={{ padding: 0 }}>
+          <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border-glow)" }}>
+            <span className="font-bold text-white font-mono">{pair}</span>
+            <div className="w-1.5 h-1.5 rounded-full pulse-dot" style={{ background: "var(--neon-green)" }} />
+            <span className="text-xs font-mono text-white/30">LIVE · TradingView</span>
           </div>
+          <TradingViewWidget pair={pair} timeframe={tf} height={460} />
         </div>
+      )}
 
-        <div className="card-glow rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-white/70 mb-4 flex items-center gap-2">
-            <Icon name="Layers" size={14} style={{ color: "var(--neon-green)" }} />
-            Паттерны
-          </h3>
-          <div className="space-y-3">
-            {PATTERNS.map((p, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Icon
-                    name={p.direction === "up" ? "ArrowUpRight" : "ArrowDownRight"}
-                    size={12}
-                    style={{ color: p.direction === "up" ? "var(--neon-green)" : "var(--neon-red)" }}
-                  />
-                  <span className="text-sm text-white/70">{p.name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-white/30">{p.timeframe}</span>
-                  <div className="flex items-center gap-1">
-                    <div className="text-xs font-mono font-bold" style={{ color: p.reliability > 80 ? "var(--neon-green)" : "var(--neon-yellow)" }}>
-                      {p.reliability}%
+      {activeTab === "analysis" && (
+        <div className="space-y-4">
+          <div className="card-glow rounded-xl overflow-hidden" style={{ padding: 0 }}>
+            <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border-glow)" }}>
+              <Icon name="Activity" size={14} style={{ color: "var(--neon-blue)" }} />
+              <span className="font-semibold text-white/80 text-sm">Технический анализ TradingView · {pair}</span>
+              <div className="w-1.5 h-1.5 rounded-full pulse-dot" style={{ background: "var(--neon-green)" }} />
+            </div>
+            <div style={{ background: "rgba(5,13,26,0.6)" }}>
+              <TradingViewTechnicalAnalysis pair={pair} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="card-glow rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-white/70 mb-4 flex items-center gap-2">
+                <Icon name="Layers" size={14} style={{ color: "var(--neon-green)" }} />
+                Паттерны
+              </h3>
+              <div className="space-y-3">
+                {PATTERNS.map((p, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon
+                        name={p.direction === "up" ? "ArrowUpRight" : "ArrowDownRight"}
+                        size={12}
+                        style={{ color: p.direction === "up" ? "var(--neon-green)" : "var(--neon-red)" }}
+                      />
+                      <span className="text-sm text-white/70">{p.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-white/30">{p.timeframe}</span>
+                      <div
+                        className="text-xs font-mono font-bold"
+                        style={{ color: p.reliability > 80 ? "var(--neon-green)" : "var(--neon-yellow)" }}
+                      >
+                        {p.reliability}%
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="card-glow rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-white/70 mb-4 flex items-center gap-2">
+                <Icon name="Info" size={14} style={{ color: "var(--neon-yellow)" }} />
+                Как читать сигналы
+              </h3>
+              <div className="space-y-3 text-sm text-white/50">
+                <div className="flex gap-2">
+                  <span className="tag-buy px-2 py-0.5 rounded text-xs font-mono shrink-0">BUY</span>
+                  <span>Открывай длинную позицию при подтверждении сигнала на графике</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="tag-sell px-2 py-0.5 rounded text-xs font-mono shrink-0">SELL</span>
+                  <span>Открывай короткую позицию при подтверждении нисходящего тренда</span>
+                </div>
+                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: "rgba(0,207,255,0.06)", border: "1px solid rgba(0,207,255,0.15)", color: "var(--neon-blue)" }}>
+                  Технический анализ выше — реальные данные от TradingView. Итоговый вывод «Покупать» / «Продавать» / «Нейтрально» учитывает 15+ индикаторов.
                 </div>
               </div>
-            ))}
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="card-glow-blue rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-white/70 mb-3 flex items-center gap-2">
-          <Icon name="Activity" size={14} style={{ color: "var(--neon-blue)" }} />
-          Полосы Боллинджера
-        </h3>
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { label: "Верхняя", value: INDICATORS.bb.upper.toFixed(5), color: "var(--neon-red)" },
-            { label: "Средняя", value: INDICATORS.bb.middle.toFixed(5), color: "var(--neon-blue)" },
-            { label: "Нижняя", value: INDICATORS.bb.lower.toFixed(5), color: "var(--neon-green)" },
-          ].map((b, i) => (
-            <div key={i} className="text-center">
-              <div className="text-xs text-white/40 mb-1">{b.label}</div>
-              <div className="font-mono font-bold text-sm" style={{ color: b.color }}>{b.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function IndicatorRow({ label, value, signal, color, bar }: { label: string; value: string; signal: string; color: string; bar: number }) {
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-xs text-white/50">{label}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-white/60">{value}</span>
-          <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ color, background: `${color}15`, border: `1px solid ${color}30` }}>
-            {signal}
-          </span>
-        </div>
-      </div>
-      <div className="h-1 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }}>
-        <div className="h-1 rounded-full transition-all" style={{ width: `${bar * 100}%`, background: color, boxShadow: `0 0 6px ${color}` }} />
-      </div>
+      )}
     </div>
   );
 }

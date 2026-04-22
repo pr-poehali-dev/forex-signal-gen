@@ -1,9 +1,10 @@
-import { useState } from "react";
-import MiniChart from "./MiniChart";
+import { useState, useMemo } from "react";
 import Icon from "@/components/ui/icon";
-import { PAIRS, SIGNALS, generateLine } from "@/data/mockData";
+import { ALL_PAIRS, getPairInfo } from "@/data/pairs";
+import { useMultiPrice } from "@/hooks/useRealtimePrice";
+import { computeSignal } from "@/hooks/useSignalEngine";
 
-const pairCharts = PAIRS.map(p => generateLine(p.price, 24, p.change > 0 ? 1 : -1));
+const MAJOR_PAIRS = ALL_PAIRS.filter(p => p.category === "forex_major");
 
 export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onGoSignals }: {
   onSelectPair: (pair: string) => void;
@@ -12,15 +13,34 @@ export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onG
   onGoSignals: () => void;
 }) {
   const [filter, setFilter] = useState<"all" | "fav">("all");
-  const activePairs = filter === "fav" ? PAIRS.filter(p => favorites.includes(p.symbol)) : PAIRS;
-  const activeSignals = SIGNALS.filter((_, i) => i < 3);
+
+  const displayPairs = filter === "fav"
+    ? ALL_PAIRS.filter(p => favorites.includes(p.symbol))
+    : MAJOR_PAIRS;
+
+  const symbols = displayPairs.map(p => p.symbol);
+  const prices = useMultiPrice(symbols);
+
+  const signalSummary = useMemo(() => {
+    const sigs = symbols.map(s => {
+      const pd = prices[s];
+      if (!pd) return null;
+      return computeSignal(s, pd);
+    }).filter(Boolean);
+    return {
+      total: sigs.length,
+      buy: sigs.filter(s => s?.type === "BUY").length,
+      sell: sigs.filter(s => s?.type === "SELL").length,
+      avgConf: sigs.length ? Math.round(sigs.reduce((a, s) => a + (s?.confidence ?? 0), 0) / sigs.length) : 0,
+    };
+  }, [prices, symbols]);
 
   return (
     <div className="animate-fade-in space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Рынок сейчас</h1>
-          <p className="text-sm text-white/40 mt-0.5">Обзор валютных пар и активных сигналов</p>
+          <p className="text-sm text-white/40 mt-0.5">Цены обновляются каждую секунду</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="pulse-dot w-2 h-2 rounded-full" style={{ background: "var(--neon-green)" }} />
@@ -30,12 +50,12 @@ export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onG
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Активных сигналов", value: "8", icon: "Zap", color: "var(--neon-green)" },
-          { label: "Точность сегодня", value: "78%", icon: "Target", color: "var(--neon-blue)" },
-          { label: "Прибыльных", value: "6/8", icon: "TrendingUp", color: "var(--neon-green)" },
-          { label: "Избранных пар", value: String(favorites.length), icon: "Star", color: "var(--neon-yellow)" },
+          { label: "BUY сигналов", value: String(signalSummary.buy), icon: "TrendingUp", color: "var(--neon-green)" },
+          { label: "AI уверенность", value: `${signalSummary.avgConf}%`, icon: "Cpu", color: "var(--neon-blue)" },
+          { label: "SELL сигналов", value: String(signalSummary.sell), icon: "TrendingDown", color: "var(--neon-red)" },
+          { label: "Избранных", value: String(favorites.length), icon: "Star", color: "var(--neon-yellow)" },
         ].map((stat, i) => (
-          <div key={i} className="card-glow rounded-xl p-4" style={{ animationDelay: `${i * 0.08}s` }}>
+          <div key={i} className="card-glow rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-white/40">{stat.label}</span>
               <Icon name={stat.icon} fallback="Circle" size={14} style={{ color: stat.color }} />
@@ -52,25 +72,31 @@ export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onG
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-xs font-semibold transition-all ${filter === f ? "bg-green-500/10 text-green-400" : "text-white/40 hover:text-white/70"}`}
+              className="px-3 py-1.5 text-xs font-semibold transition-all"
+              style={filter === f
+                ? { background: "rgba(0,255,136,0.1)", color: "var(--neon-green)" }
+                : { color: "rgba(255,255,255,0.4)" }
+              }
             >
-              {f === "all" ? "Все" : "Избранные"}
+              {f === "all" ? "Мажоры" : "Избранные"}
             </button>
           ))}
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {activePairs.map((pair, i) => {
-          const chartData = pairCharts[PAIRS.indexOf(pair)];
-          const isUp = pair.change >= 0;
+        {displayPairs.map((pair) => {
+          const pd = prices[pair.symbol];
+          const sig = pd ? computeSignal(pair.symbol, pd) : null;
           const isFav = favorites.includes(pair.symbol);
+          const fmt = (v: number) => v.toFixed(pair.digits);
+          const isUp = (pd?.changePct ?? 0) >= 0;
+
           return (
             <div
               key={pair.symbol}
               onClick={() => onSelectPair(pair.symbol)}
-              className="card-glow rounded-xl p-4 cursor-pointer group transition-all hover:border-green-500/30"
-              style={{ animationDelay: `${i * 0.05}s` }}
+              className="card-glow rounded-xl p-4 cursor-pointer hover:border-green-500/20 transition-all"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -86,23 +112,49 @@ export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onG
                   </button>
                   <div>
                     <div className="font-bold text-white text-sm">{pair.symbol}</div>
-                    <div className="font-mono text-xs text-white/40">{pair.price.toFixed(pair.price > 100 ? 2 : 5)}</div>
+                    <div className="text-xs text-white/30">{pair.label}</div>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-3">
-                  <MiniChart data={chartData} color="auto" width={80} height={36} />
-                  <div className="text-right">
-                    <div className={`text-sm font-bold font-mono ${isUp ? "neon-text" : "neon-red"}`}>
-                      {isUp ? "+" : ""}{pair.change}%
+                  {/* Сигнал */}
+                  {sig && sig.type !== "WAIT" && (
+                    <div
+                      className="text-xs font-black font-mono px-2 py-0.5 rounded"
+                      style={{
+                        background: sig.type === "BUY" ? "rgba(0,255,136,0.15)" : "rgba(255,51,102,0.15)",
+                        color: sig.type === "BUY" ? "var(--neon-green)" : "var(--neon-red)",
+                        border: `1px solid ${sig.type === "BUY" ? "rgba(0,255,136,0.3)" : "rgba(255,51,102,0.3)"}`,
+                      }}
+                    >
+                      {sig.type} {sig.confidence}%
                     </div>
-                    <Icon name={isUp ? "TrendingUp" : "TrendingDown"} size={12} style={{ color: isUp ? "var(--neon-green)" : "var(--neon-red)" }} />
+                  )}
+
+                  <div className="text-right">
+                    {pd ? (
+                      <>
+                        <div
+                          className="text-sm font-bold font-mono transition-colors duration-150"
+                          style={{ color: pd.direction === "up" ? "var(--neon-green)" : pd.direction === "down" ? "var(--neon-red)" : "rgba(255,255,255,0.8)" }}
+                        >
+                          {fmt(pd.price)}
+                        </div>
+                        <div className={`text-xs font-mono ${isUp ? "neon-text" : "neon-red"}`}>
+                          {isUp ? "+" : ""}{pd.changePct.toFixed(3)}%
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-white/20 font-mono">загрузка...</div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
           );
         })}
-        {activePairs.length === 0 && (
+
+        {displayPairs.length === 0 && (
           <div className="col-span-2 card-glow rounded-xl p-8 text-center text-white/30">
             <Icon name="Star" size={32} className="mx-auto mb-2 opacity-20" />
             <p>Нет избранных пар. Нажмите ★ рядом с парой.</p>
@@ -110,27 +162,23 @@ export default function Dashboard({ onSelectPair, favorites, toggleFavorite, onG
         )}
       </div>
 
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-semibold text-white/70">Последние сигналы</span>
-          <button onClick={onGoSignals} className="text-xs font-mono neon-text hover:opacity-80 transition-opacity">
-            Все сигналы →
-          </button>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-white/70">AI сигналы M1</span>
+        <button onClick={onGoSignals} className="text-xs font-mono neon-text hover:opacity-80 transition-opacity">
+          Все сигналы →
+        </button>
+      </div>
+
+      <div className="card-glow rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Icon name="Cpu" size={14} style={{ color: "var(--neon-blue)" }} />
+          <span className="text-sm text-white/60">Алгоритм использует 15 индикаторов + AI-взвешивание</span>
         </div>
-        <div className="space-y-2">
-          {activeSignals.map((sig, i) => (
-            <div key={sig.id} className="card-glow rounded-xl px-4 py-3 flex items-center gap-4" style={{ animationDelay: `${i * 0.07}s` }}>
-              <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono ${sig.type === "BUY" ? "tag-buy" : "tag-sell"}`}>
-                {sig.type}
-              </span>
-              <span className="text-sm font-semibold text-white w-20">{sig.pair}</span>
-              <span className="text-xs font-mono text-white/40 w-8">{sig.tf}</span>
-              <span className="text-xs font-mono text-white/60 flex-1">{sig.price}</span>
-              <span className={`text-xs font-mono font-bold ${sig.type === "BUY" ? "neon-text" : "neon-red"}`}>{sig.profit}</span>
-              <div className="flex items-center gap-1">
-                <div className="text-xs text-white/30 font-mono">{sig.accuracy}%</div>
-              </div>
-            </div>
+        <div className="flex gap-4 flex-wrap">
+          {["RSI", "MACD", "EMA 8/21/50/200", "Bollinger", "Stochastic", "CCI", "Williams %R", "Momentum", "ROC", "Vortex", "ADX", "Price Action"].map(ind => (
+            <span key={ind} className="text-xs font-mono px-2 py-1 rounded" style={{ background: "rgba(0,207,255,0.08)", color: "rgba(0,207,255,0.6)", border: "1px solid rgba(0,207,255,0.15)" }}>
+              {ind}
+            </span>
           ))}
         </div>
       </div>

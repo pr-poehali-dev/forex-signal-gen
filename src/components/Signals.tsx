@@ -1,128 +1,74 @@
 import { useState, useMemo } from "react";
 import Icon from "@/components/ui/icon";
-
-const TYPES = ["Все", "BUY", "SELL"];
-const TIMEFRAMES_FILTER = ["Все", "M15", "H1", "H4", "D1"];
-
-interface Signal {
-  id: number;
-  pair: string;
-  type: "BUY" | "SELL";
-  tf: string;
-  price: string;
-  tp: string;
-  sl: string;
-  time: string;
-  accuracy: number;
-  profit: string;
-  rr: string;
-  confirmations: string[];
-  status: "active" | "closed_win" | "closed_loss";
-}
-
-const SIGNALS_RAW: Signal[] = [
-  {
-    id: 1, pair: "EUR/USD", type: "BUY", tf: "H4", price: "1.08341", tp: "1.08980", sl: "1.08010",
-    time: "14:32", accuracy: 87, profit: "+63 pip", rr: "1:2.0",
-    confirmations: ["RSI > 50", "MACD бычий", "EMA 20 > EMA 50", "Поддержка пробита вверх"],
-    status: "active",
-  },
-  {
-    id: 2, pair: "GBP/USD", type: "SELL", tf: "H4", price: "1.27012", tp: "1.26400", sl: "1.27340",
-    time: "13:15", accuracy: 82, profit: "+61 pip", rr: "1:1.9",
-    confirmations: ["RSI < 50", "MACD медвежий", "Уровень сопротивления", "Divergence RSI"],
-    status: "active",
-  },
-  {
-    id: 3, pair: "USD/JPY", type: "BUY", tf: "H1", price: "154.120", tp: "154.820", sl: "153.770",
-    time: "12:47", accuracy: 79, profit: "+70 pip", rr: "1:2.0",
-    confirmations: ["Тренд восходящий", "EMA 50 поддержка", "MACD нулевая линия"],
-    status: "closed_win",
-  },
-  {
-    id: 4, pair: "XAU/USD", type: "BUY", tf: "D1", price: "2341.50", tp: "2380.00", sl: "2318.00",
-    time: "09:00", accuracy: 91, profit: "+38.5$", rr: "1:1.7",
-    confirmations: ["D1 тренд вверх", "RSI 55 нейтр.", "Breakout уровня", "Объёмы растут", "EMA 200 поддержка"],
-    status: "active",
-  },
-  {
-    id: 5, pair: "AUD/USD", type: "SELL", tf: "H1", price: "0.65410", tp: "0.64980", sl: "0.65640",
-    time: "11:20", accuracy: 75, profit: "+43 pip", rr: "1:1.9",
-    confirmations: ["RSI перекуплен", "Медвежий паттерн"],
-    status: "closed_win",
-  },
-  {
-    id: 6, pair: "EUR/GBP", type: "BUY", tf: "D1", price: "0.85210", tp: "0.85900", sl: "0.84870",
-    time: "09:00", accuracy: 85, profit: "+69 pip", rr: "1:2.0",
-    confirmations: ["D1 разворот", "Молот на поддержке", "RSI перепродан"],
-    status: "active",
-  },
-  {
-    id: 7, pair: "NZD/USD", type: "BUY", tf: "H4", price: "0.59980", tp: "0.60650", sl: "0.59640",
-    time: "07:15", accuracy: 72, profit: "+67 pip", rr: "1:2.0",
-    confirmations: ["MACD бычий", "Уровень поддержки"],
-    status: "closed_loss",
-  },
-  {
-    id: 8, pair: "USD/CAD", type: "SELL", tf: "H4", price: "1.35890", tp: "1.35100", sl: "1.36270",
-    time: "06:45", accuracy: 80, profit: "+79 pip", rr: "1:2.1",
-    confirmations: ["Тренд нисходящий", "RSI < 45", "EMA пересечение вниз", "Объёмы подтверждают"],
-    status: "closed_win",
-  },
-];
-
-const STATUS_LABELS: Record<Signal["status"], { label: string; color: string; bg: string }> = {
-  active: { label: "Активен", color: "var(--neon-green)", bg: "rgba(0,255,136,0.1)" },
-  closed_win: { label: "Закрыт ✓", color: "var(--neon-blue)", bg: "rgba(0,207,255,0.08)" },
-  closed_loss: { label: "Стоп", color: "var(--neon-red)", bg: "rgba(255,51,102,0.08)" },
-};
+import { ALL_PAIRS, CATEGORIES, getPairInfo } from "@/data/pairs";
+import { useMultiPrice } from "@/hooks/useRealtimePrice";
+import { computeSignal } from "@/hooks/useSignalEngine";
 
 export default function Signals() {
-  const [typeFilter, setTypeFilter] = useState("Все");
-  const [tfFilter, setTfFilter] = useState("Все");
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [catFilter, setCatFilter] = useState("forex_major");
+  const [minConf, setMinConf] = useState(60);
+  const [typeFilter, setTypeFilter] = useState<"ALL" | "BUY" | "SELL" | "WAIT">("ALL");
 
-  const filtered = useMemo(() => SIGNALS_RAW.filter(s => {
-    const matchType = typeFilter === "Все" || s.type === typeFilter;
-    const matchTf = tfFilter === "Все" || s.tf === tfFilter;
-    return matchType && matchTf;
-  }), [typeFilter, tfFilter]);
+  const displayPairs = useMemo(() =>
+    ALL_PAIRS.filter(p => catFilter === "all" || p.category === catFilter).map(p => p.symbol).slice(0, 20),
+    [catFilter]
+  );
 
-  const stats = useMemo(() => {
-    const wins = SIGNALS_RAW.filter(s => s.status === "closed_win").length;
-    const losses = SIGNALS_RAW.filter(s => s.status === "closed_loss").length;
-    const active = SIGNALS_RAW.filter(s => s.status === "active").length;
-    const avg = Math.round(SIGNALS_RAW.reduce((a, s) => a + s.accuracy, 0) / SIGNALS_RAW.length);
-    return { wins, losses, active, avg };
-  }, []);
+  const prices = useMultiPrice(displayPairs);
+
+  const allSignals = useMemo(() =>
+    displayPairs.map(sym => {
+      const pd = prices[sym];
+      if (!pd) return null;
+      const sig = computeSignal(sym, pd);
+      if (!sig) return null;
+      return { sym, sig, pd };
+    }).filter(Boolean),
+    [prices, displayPairs]
+  );
+
+  const signals = useMemo(() =>
+    allSignals.filter(s => {
+      if (!s) return false;
+      const matchType = typeFilter === "ALL" || s.sig.type === typeFilter;
+      const matchConf = s.sig.confidence >= minConf;
+      return matchType && matchConf;
+    }),
+    [allSignals, typeFilter, minConf]
+  );
+
+  const stats = useMemo(() => ({
+    buy: allSignals.filter(s => s?.sig.type === "BUY").length,
+    sell: allSignals.filter(s => s?.sig.type === "SELL").length,
+    wait: allSignals.filter(s => s?.sig.type === "WAIT").length,
+    avgConf: allSignals.length
+      ? Math.round(allSignals.reduce((a, s) => a + (s?.sig.confidence ?? 0), 0) / allSignals.length)
+      : 0,
+  }), [allSignals]);
 
   return (
     <div className="animate-fade-in space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Сигналы</h1>
-          <p className="text-sm text-white/40 mt-0.5">Мульти-таймфрейм анализ · RSI + MACD + EMA + Price Action</p>
+          <h1 className="text-2xl font-bold text-white">Сигналы M1 по всем парам</h1>
+          <p className="text-sm text-white/40 mt-0.5">15 индикаторов · AI · реальное время · 1 минута</p>
         </div>
-        <div
-          className="flex items-center gap-3 px-4 py-2 rounded-xl"
-          style={{ background: "rgba(0,255,136,0.08)", border: "1px solid rgba(0,255,136,0.2)" }}
-        >
-          <Icon name="Target" size={16} style={{ color: "var(--neon-green)" }} />
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl" style={{ background: "rgba(0,255,136,0.08)", border: "1px solid rgba(0,255,136,0.2)" }}>
+          <Icon name="Cpu" size={14} style={{ color: "var(--neon-green)" }} />
           <div>
-            <div className="text-xs text-white/40">Ср. точность</div>
-            <div className="text-xl font-bold font-mono neon-text">{stats.avg}%</div>
+            <div className="text-xs text-white/40">AI уверенность</div>
+            <div className="text-lg font-black font-mono neon-text">{stats.avgConf}%</div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Активных", value: stats.active, color: "var(--neon-green)", icon: "Zap" },
-          { label: "Закрыто +", value: stats.wins, color: "var(--neon-blue)", icon: "TrendingUp" },
-          { label: "По стопу", value: stats.losses, color: "var(--neon-red)", icon: "TrendingDown" },
-          { label: "Мин. RR", value: "1:1.9", color: "var(--neon-yellow)", icon: "Scale" },
+          { label: "BUY сигналов", value: stats.buy, color: "var(--neon-green)", icon: "TrendingUp" },
+          { label: "SELL сигналов", value: stats.sell, color: "var(--neon-red)", icon: "TrendingDown" },
+          { label: "Ожидание", value: stats.wait, color: "var(--neon-yellow)", icon: "Minus" },
         ].map((s, i) => (
-          <div key={i} className="card-glow rounded-xl p-4 flex items-center gap-3">
+          <div key={i} className="card-glow rounded-xl p-3 flex items-center gap-3">
             <Icon name={s.icon} fallback="Circle" size={18} style={{ color: s.color }} />
             <div>
               <div className="text-xs text-white/40">{s.label}</div>
@@ -132,170 +78,148 @@ export default function Signals() {
         ))}
       </div>
 
-      <div className="card-glow rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-white/60 mb-3 flex items-center gap-2">
-          <Icon name="Shield" size={13} style={{ color: "var(--neon-green)" }} />
-          Алгоритм точности сигнала
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-white/50">
-          {[
-            { icon: "BarChart2", title: "Мульти-ТФ", desc: "Сигнал подтверждается на 3 таймфреймах одновременно" },
-            { icon: "Activity", title: "5+ индикаторов", desc: "RSI, MACD, EMA 20/50/200, Stochastic, Bollinger" },
-            { icon: "Crosshair", title: "Price Action", desc: "Свечные паттерны + уровни поддержки/сопротивления" },
-          ].map((item, i) => (
-            <div key={i} className="flex gap-3 p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
-              <Icon name={item.icon} fallback="Circle" size={14} style={{ color: "var(--neon-blue)", flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <div className="font-semibold text-white/70 mb-0.5">{item.title}</div>
-                <div>{item.desc}</div>
-              </div>
-            </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--border-glow)" }}>
+          {[{ id: "all", label: "Все" }, ...CATEGORIES].map(c => (
+            <button
+              key={c.id}
+              onClick={() => setCatFilter(c.id)}
+              className="px-3 py-1.5 text-xs font-semibold transition-all"
+              style={catFilter === c.id
+                ? { background: "var(--neon-green)", color: "#050d1a" }
+                : { color: "rgba(255,255,255,0.4)" }
+              }
+            >
+              {c.label}
+            </button>
           ))}
         </div>
-      </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--border-glow)" }}>
-          {TYPES.map(t => (
+          {(["ALL", "BUY", "SELL", "WAIT"] as const).map(t => (
             <button
               key={t}
               onClick={() => setTypeFilter(t)}
-              className={`px-3 py-1.5 text-xs font-bold transition-all ${typeFilter === t
-                ? t === "BUY" ? "tag-buy" : t === "SELL" ? "tag-sell" : "bg-white/10 text-white"
-                : "text-white/40 hover:text-white/60"}`}
+              className="px-3 py-1.5 text-xs font-bold transition-all"
+              style={typeFilter === t
+                ? {
+                    background: t === "BUY" ? "rgba(0,255,136,0.2)" : t === "SELL" ? "rgba(255,51,102,0.2)" : "rgba(255,255,255,0.1)",
+                    color: t === "BUY" ? "var(--neon-green)" : t === "SELL" ? "var(--neon-red)" : "white"
+                  }
+                : { color: "rgba(255,255,255,0.35)" }
+              }
             >
               {t}
             </button>
           ))}
         </div>
-        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--border-glow)" }}>
-          {TIMEFRAMES_FILTER.map(t => (
-            <button
-              key={t}
-              onClick={() => setTfFilter(t)}
-              className={`px-3 py-1.5 text-xs font-bold font-mono transition-all ${tfFilter === t ? "text-black" : "text-white/40 hover:text-white/70"}`}
-              style={tfFilter === t ? { background: "var(--neon-green)" } : {}}
-            >
-              {t}
-            </button>
-          ))}
+
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-xs text-white/40">Мин. AI: {minConf}%</span>
+          <input
+            type="range" min={50} max={95} value={minConf}
+            onChange={e => setMinConf(Number(e.target.value))}
+            className="w-24 cursor-pointer"
+            style={{ accentColor: "var(--neon-green)" }}
+          />
         </div>
       </div>
 
       <div className="space-y-2">
-        {filtered.map((sig, i) => {
-          const isOpen = expanded === sig.id;
-          const st = STATUS_LABELS[sig.status];
+        {signals.length === 0 && (
+          <div className="card-glow rounded-xl p-10 text-center">
+            <Icon name="Cpu" size={28} className="mx-auto mb-3" style={{ color: "rgba(255,255,255,0.1)" }} />
+            <p className="text-white/30 text-sm">Накопление данных... подождите 30–40 секунд</p>
+            <p className="text-white/20 text-xs mt-1">Алгоритму нужно минимум 35 точек для расчёта</p>
+          </div>
+        )}
+
+        {signals.map((item, i) => {
+          if (!item) return null;
+          const { sym, sig, pd } = item;
+          const pairInfo = getPairInfo(sym);
+          const fmt = (v: number) => v.toFixed(pairInfo.digits);
+          const isBuy = sig.type === "BUY";
+          const isWait = sig.type === "WAIT";
+          const sigColor = isWait ? "#ffcc00" : isBuy ? "var(--neon-green)" : "var(--neon-red)";
+          const isUp = pd.changePct >= 0;
+          const buyVotes = sig.indicators.filter(v => v.signal === "buy").length;
+          const sellVotes = sig.indicators.filter(v => v.signal === "sell").length;
+
           return (
             <div
-              key={sig.id}
-              className="card-glow rounded-xl overflow-hidden transition-all"
-              style={{ animationDelay: `${i * 0.05}s`, borderColor: isOpen ? "rgba(0,255,136,0.25)" : undefined }}
+              key={sym}
+              className="card-glow rounded-xl overflow-hidden transition-all hover:border-white/10"
+              style={{ animationDelay: `${i * 0.03}s` }}
             >
-              <div
-                className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-white/[0.02] transition-all"
-                onClick={() => setExpanded(isOpen ? null : sig.id)}
-              >
-                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono min-w-12 text-center ${sig.type === "BUY" ? "tag-buy" : "tag-sell"}`}>
+              <div className="flex items-center gap-3 px-4 py-3 flex-wrap md:flex-nowrap">
+                <div
+                  className="font-black font-mono text-sm px-3 py-1.5 rounded-lg min-w-14 text-center shrink-0"
+                  style={{ background: sigColor, color: "#050d1a" }}
+                >
                   {sig.type}
-                </span>
+                </div>
 
-                <div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2 items-center">
-                  <span className="font-semibold text-white text-sm">{sig.pair}</span>
-                  <div className="font-mono text-xs text-white/50 flex items-center gap-1">
-                    <Icon name="Clock" size={10} style={{ color: "rgba(255,255,255,0.25)" }} />
-                    {sig.time} · {sig.tf}
+                <div className="min-w-24 shrink-0">
+                  <div className="font-bold text-white text-sm">{sym}</div>
+                  <div className="text-xs text-white/30 truncate">{pairInfo.label}</div>
+                </div>
+
+                <div className="min-w-28 shrink-0">
+                  <div
+                    className="font-mono font-bold text-sm transition-colors duration-150"
+                    style={{ color: pd.direction === "up" ? "var(--neon-green)" : pd.direction === "down" ? "var(--neon-red)" : "rgba(255,255,255,0.8)" }}
+                  >
+                    {fmt(pd.price)}
                   </div>
-                  <div className="hidden md:flex flex-col gap-0.5">
-                    <span className="text-xs text-white/30">Вход</span>
-                    <span className="font-mono text-xs text-white/70">{sig.price}</span>
-                  </div>
-                  <div className="hidden md:flex gap-3">
-                    <div>
-                      <span className="text-xs" style={{ color: "rgba(0,255,136,0.4)" }}>TP </span>
-                      <span className="font-mono text-xs neon-text">{sig.tp}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs neon-red" style={{ opacity: 0.5 }}>SL </span>
-                      <span className="font-mono text-xs neon-red">{sig.sl}</span>
-                    </div>
-                  </div>
-                  <div className="hidden md:block">
-                    <span className="text-xs font-mono text-white/30">{sig.rr}</span>
+                  <div className={`text-xs font-mono ${isUp ? "neon-text" : "neon-red"}`}>
+                    {isUp ? "+" : ""}{pd.changePct.toFixed(3)}%
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {!isWait && (
+                  <div className="hidden md:flex gap-4 text-xs font-mono shrink-0">
+                    <div>
+                      <span className="text-white/30">TP </span>
+                      <span style={{ color: "var(--neon-green)" }}>{fmt(sig.tp1)}</span>
+                    </div>
+                    <div>
+                      <span className="text-white/30">SL </span>
+                      <span style={{ color: "var(--neon-red)" }}>{fmt(sig.sl)}</span>
+                    </div>
+                    <div>
+                      <span className="text-white/30">RR </span>
+                      <span style={{ color: "var(--neon-blue)" }}>{sig.rr}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="hidden md:flex items-center gap-2 flex-1">
+                  <div className="flex-1 h-1.5 rounded-full overflow-hidden flex" style={{ background: "rgba(255,255,255,0.05)" }}>
+                    <div style={{ width: `${(buyVotes / sig.indicators.length) * 100}%`, background: "var(--neon-green)", transition: "width 0.5s" }} className="h-full" />
+                    <div style={{ width: `${(sellVotes / sig.indicators.length) * 100}%`, background: "var(--neon-red)", transition: "width 0.5s" }} className="h-full" />
+                  </div>
+                  <span className="text-xs text-white/30 font-mono">{buyVotes}/{sig.indicators.length}</span>
+                </div>
+
+                <div className="text-right ml-auto shrink-0">
                   <div
-                    className="hidden md:flex px-2 py-0.5 rounded text-xs font-mono font-semibold"
-                    style={{ color: st.color, background: st.bg }}
+                    className="font-mono font-black text-xl"
+                    style={{ color: sig.confidence >= 80 ? "var(--neon-green)" : sig.confidence >= 65 ? "var(--neon-yellow)" : "rgba(255,255,255,0.4)" }}
                   >
-                    {st.label}
+                    {sig.confidence}%
                   </div>
-                  <div className="text-right">
-                    <AccuracyBadge val={sig.accuracy} />
-                  </div>
-                  <Icon
-                    name={isOpen ? "ChevronUp" : "ChevronDown"}
-                    size={14}
-                    style={{ color: "rgba(255,255,255,0.2)" }}
-                  />
+                  <div className="text-xs text-white/30">AI</div>
                 </div>
               </div>
-
-              {isOpen && (
-                <div className="px-4 pb-4 pt-0 border-t" style={{ borderColor: "rgba(255,255,255,0.05)" }}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-                    <div>
-                      <div className="text-xs text-white/40 mb-2 font-semibold uppercase tracking-wider">Подтверждения сигнала</div>
-                      <div className="space-y-1.5">
-                        {sig.confirmations.map((c, ci) => (
-                          <div key={ci} className="flex items-center gap-2 text-sm text-white/60">
-                            <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--neon-green)" }} />
-                            {c}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="text-xs text-white/40 mb-2 font-semibold uppercase tracking-wider">Параметры</div>
-                      {[
-                        { label: "Вход", value: sig.price },
-                        { label: "Тейк-профит", value: sig.tp, color: "var(--neon-green)" },
-                        { label: "Стоп-лосс", value: sig.sl, color: "var(--neon-red)" },
-                        { label: "Risk/Reward", value: sig.rr, color: "var(--neon-yellow)" },
-                        { label: "Прибыль", value: sig.profit, color: sig.type === "BUY" ? "var(--neon-green)" : "var(--neon-red)" },
-                      ].map(row => (
-                        <div key={row.label} className="flex justify-between text-sm">
-                          <span className="text-white/40">{row.label}</span>
-                          <span className="font-mono font-semibold" style={{ color: row.color || "rgba(255,255,255,0.7)" }}>{row.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
-        {filtered.length === 0 && (
-          <div className="card-glow rounded-xl p-8 text-center text-white/30">
-            Нет сигналов по выбранным фильтрам
-          </div>
-        )}
       </div>
-    </div>
-  );
-}
 
-function AccuracyBadge({ val }: { val: number }) {
-  const color = val >= 85 ? "var(--neon-green)" : val >= 78 ? "var(--neon-yellow)" : "var(--neon-blue)";
-  return (
-    <div
-      className="font-mono font-bold text-sm px-2 py-0.5 rounded"
-      style={{ color, background: `${color}12`, border: `1px solid ${color}30` }}
-    >
-      {val}%
+      <div className="text-center text-xs text-white/15 font-mono pt-2">
+        Сигналы M1 · 15 индикаторов + AI · обновление каждые 5с · не является финансовым советом
+      </div>
     </div>
   );
 }
